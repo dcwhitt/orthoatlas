@@ -1,0 +1,6 @@
+[
+  {"variable_name":"patient_id","label":"Patient ID","type":"text","units":"","allowed_values":"","description":"Clinic identifier entered by user.","example":"ABC123","missing_value_meaning":"Not entered"},
+  {"variable_name":"date","label":"Date","type":"date","units":"","allowed_values":"YYYY-MM-DD","description":"Date of ROM capture.","example":"2026-07-07","missing_value_meaning":"Not entered"},
+  {"variable_name":"joint_selection","label":"Joint selection","type":"categorical","units":"","allowed_values":"all;shoulder;elbow;forearm;wrist_fe;wrist_dev;hip;knee;ankle","description":"Selected capture protocol.","example":"elbow","missing_value_meaning":"All visible joints"},
+  {"variable_name":"arc_deg","label":"Arc of motion","type":"numeric","units":"degrees","allowed_values":"","description":"Maximum minus minimum processed ROM value.","example":"127.4","missing_value_meaning":"Not measured"}
+]

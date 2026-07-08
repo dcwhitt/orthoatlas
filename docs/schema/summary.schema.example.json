@@ -1,0 +1,20 @@
+{
+  "schema_version": "2.8.0",
+  "app_name": "OrthoAtlas",
+  "app_version": "2.8.0",
+  "mode": "clinic_fast",
+  "privacy": {
+    "video_uploaded": false,
+    "video_stored": false,
+    "processing": "local browser memory"
+  },
+  "session": {
+    "patient_id": "ABC123",
+    "date": "2026-07-07",
+    "joint_selection": "elbow",
+    "side": "auto/bilateral",
+    "involved_side": "left",
+    "notes": "Left ankle ORIF, 6 weeks postop"
+  },
+  "results": {}
+}
