@@ -58,34 +58,107 @@ export function detectFrame(models, video, timestampMs = performance.now()) {
 
 export function drawLandmarks(canvas, video, detection, overlays = {}) {
   if (!canvas || !video) return;
-  const rect = video.getBoundingClientRect();
-  const width = video.videoWidth || rect.width || 1280;
-  const height = video.videoHeight || rect.height || 720;
-  if (canvas.width !== width) canvas.width = width;
-  if (canvas.height !== height) canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, width, height);
+
+  const ctx = prepareOverlayCanvas(canvas);
+  if (!ctx) return;
+
+  const size = getCanvasCssSize(canvas);
+  const fitMode = overlays.fitMode === 'cover' ? 'cover' : 'contain';
+  const mirrorX = Boolean(overlays.mirrorX);
+  const drawRect = getVideoDrawRect(video, size.width, size.height, fitMode);
+  const mapper = makeLandmarkMapper(drawRect, { mirrorX });
+
+  ctx.clearRect(0, 0, size.width, size.height);
+  if (drawRect.letterboxed) drawLetterboxGuides(ctx, drawRect, size);
 
   const poses = detection?.pose?.landmarks ?? [];
   for (const landmarks of poses) {
-    drawPoseSkeleton(ctx, landmarks, width, height, overlays);
+    drawPoseSkeleton(ctx, landmarks, mapper, overlays);
   }
 
   if (overlays.selectedJoint === 'forearm') {
     const hands = detection?.hands?.landmarks ?? [];
     const handedness = detection?.hands?.handednesses ?? detection?.hands?.handedness ?? [];
-    drawForearmHands(ctx, hands, handedness, width, height, overlays);
+    drawForearmHands(ctx, hands, handedness, mapper, overlays);
   }
 
-  drawStatusBadge(ctx, detection, width, height, overlays);
+  drawStatusBadge(ctx, detection, size.width, size.height, overlays, drawRect);
 }
 
-const POSE_EDGES = [
-  [11, 13], [13, 15], [12, 14], [14, 16],
-  [11, 12], [11, 23], [12, 24], [23, 24],
-  [23, 25], [25, 27], [24, 26], [26, 28],
-  [27, 31], [28, 32], [27, 29], [28, 30]
-];
+export function getVideoDrawRect(video, containerWidth, containerHeight, fitMode = 'contain') {
+  const videoWidth = video?.videoWidth || containerWidth || 1;
+  const videoHeight = video?.videoHeight || containerHeight || 1;
+  const videoAspect = videoWidth / videoHeight;
+  const containerAspect = containerWidth / containerHeight;
+  const contain = fitMode !== 'cover';
+
+  let width;
+  let height;
+  if (contain ? videoAspect > containerAspect : videoAspect < containerAspect) {
+    width = containerWidth;
+    height = width / videoAspect;
+  } else {
+    height = containerHeight;
+    width = height * videoAspect;
+  }
+
+  const x = (containerWidth - width) / 2;
+  const y = (containerHeight - height) / 2;
+  return {
+    x,
+    y,
+    width,
+    height,
+    videoWidth,
+    videoHeight,
+    containerWidth,
+    containerHeight,
+    fitMode,
+    letterboxed: contain && (Math.abs(x) > 0.5 || Math.abs(y) > 0.5),
+    cropped: !contain && (x < -0.5 || y < -0.5)
+  };
+}
+
+export function mapLandmarkToCanvas(point, drawRect, options = {}) {
+  if (!point) return null;
+  const normalizedX = options.mirrorX ? 1 - point.x : point.x;
+  return {
+    x: drawRect.x + normalizedX * drawRect.width,
+    y: drawRect.y + point.y * drawRect.height
+  };
+}
+
+function prepareOverlayCanvas(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+  const dpr = window.devicePixelRatio || 1;
+  const targetWidth = Math.max(1, Math.round(width * dpr));
+  const targetHeight = Math.max(1, Math.round(height * dpr));
+  if (canvas.width !== targetWidth) canvas.width = targetWidth;
+  if (canvas.height !== targetHeight) canvas.height = targetHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+function getCanvasCssSize(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  return { width: Math.max(1, rect.width), height: Math.max(1, rect.height) };
+}
+
+function makeLandmarkMapper(drawRect, options = {}) {
+  return (point) => mapLandmarkToCanvas(point, drawRect, options);
+}
+
+function drawLetterboxGuides(ctx, drawRect, size) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.20)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([8, 8]);
+  ctx.strokeRect(drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+  ctx.restore();
+}
 
 const HAND_EDGES = [
   [0,1],[1,2],[2,3],[3,4],
@@ -96,11 +169,11 @@ const HAND_EDGES = [
   [5,9],[9,13],[13,17]
 ];
 
-function drawPoseSkeleton(ctx, landmarks, width, height, overlays = {}) {
-  const warn = 'rgba(250,204,21,0.95)';
+function drawPoseSkeleton(ctx, landmarks, mapPoint, overlays = {}) {
   const good = 'rgba(34,197,94,0.95)';
+  const warn = 'rgba(250,204,21,0.95)';
   const bad = 'rgba(239,68,68,0.95)';
-  const selectedJoint = overlays.selectedJoint ?? 'all';
+  const selectedJoint = overlays.selectedJoint ?? 'elbow';
   const selectedSide = overlays.selectedSide ?? 'auto/bilateral';
   const sides = selectedSide === 'left' || selectedSide === 'right' ? [selectedSide] : ['left', 'right'];
   ctx.lineCap = 'round';
@@ -118,26 +191,26 @@ function drawPoseSkeleton(ctx, landmarks, width, height, overlays = {}) {
   }
 
   for (const [proximalIdx, jointIdx, distalIdx, label, clinicalFlexion] of jointSpecs) {
-    drawJointAngle(ctx, landmarks, width, height, proximalIdx, jointIdx, distalIdx, label, good, warn, bad, clinicalFlexion);
+    drawJointAngle(ctx, landmarks, mapPoint, proximalIdx, jointIdx, distalIdx, label, good, warn, bad, clinicalFlexion);
   }
 }
 
-
-function drawForearmHands(ctx, hands, handedness, width, height, overlays = {}) {
+function drawForearmHands(ctx, hands, handedness, mapPoint, overlays = {}) {
   const selectedSide = overlays.selectedSide ?? 'auto/bilateral';
   const sides = selectedSide === 'left' || selectedSide === 'right' ? [selectedSide] : ['left', 'right'];
   hands.forEach((hand, idx) => {
     const side = handSide(hand, handedness?.[idx]);
     if (side && !sides.includes(side)) return;
-    drawHandSkeleton(ctx, hand, width, height);
+    drawHandSkeleton(ctx, hand, mapPoint);
     const indexMcp = hand?.[5];
     const pinkyMcp = hand?.[17];
     const wrist = hand?.[0];
     const minVis = Math.min(conf(indexMcp), conf(pinkyMcp), conf(wrist));
     if (!indexMcp || !pinkyMcp || !wrist || minVis < 0.7) return;
-    drawSegment(ctx, indexMcp, pinkyMcp, width, height, 'rgba(34,197,94,0.98)', 8);
+    drawSegment(ctx, indexMcp, pinkyMcp, mapPoint, 'rgba(34,197,94,0.98)', 8);
     const roll = Math.atan2(pinkyMcp.y - indexMcp.y, pinkyMcp.x - indexMcp.x) * 180 / Math.PI;
-    drawLabel(ctx, `${side ? side[0].toUpperCase() : ''} forearm: ${Math.round(normalizeAngle180(roll))}°`, wrist.x * width + 12, wrist.y * height - 16, 'rgba(34,197,94,0.95)');
+    const wristCanvas = mapPoint(wrist);
+    drawLabel(ctx, `${side ? side[0].toUpperCase() : ''} forearm: ${Math.round(normalizeAngle180(roll))}°`, wristCanvas.x + 12, wristCanvas.y - 16, 'rgba(34,197,94,0.95)');
   });
 }
 
@@ -157,17 +230,20 @@ function normalizeAngle180(deg) {
   return v;
 }
 
-function drawHandSkeleton(ctx, landmarks, width, height) {
+function drawHandSkeleton(ctx, landmarks, mapPoint) {
   for (const [a, b] of HAND_EDGES) {
     const pa = landmarks[a];
     const pb = landmarks[b];
     if (!pa || !pb) continue;
-    drawSegment(ctx, pa, pb, width, height, 'rgba(168,85,247,0.95)', 3);
+    drawSegment(ctx, pa, pb, mapPoint, 'rgba(168,85,247,0.95)', 3);
   }
-  landmarks.forEach((p, i) => drawPoint(ctx, p.x * width, p.y * height, i === 0 ? 6 : 4, 'rgba(255,255,255,0.96)', 'rgba(109,40,217,0.9)'));
+  landmarks.forEach((p, i) => {
+    const c = mapPoint(p);
+    drawPoint(ctx, c.x, c.y, i === 0 ? 6 : 4, 'rgba(255,255,255,0.96)', 'rgba(109,40,217,0.9)');
+  });
 }
 
-function drawJointAngle(ctx, landmarks, width, height, proximalIdx, jointIdx, distalIdx, label, good, warn, bad, clinicalFlexion = false) {
+function drawJointAngle(ctx, landmarks, mapPoint, proximalIdx, jointIdx, distalIdx, label, good, warn, bad, clinicalFlexion = false) {
   const a = landmarks[proximalIdx];
   const b = landmarks[jointIdx];
   const c = landmarks[distalIdx];
@@ -175,36 +251,38 @@ function drawJointAngle(ctx, landmarks, width, height, proximalIdx, jointIdx, di
   const minVis = Math.min(conf(a), conf(b), conf(c));
   if (minVis < 0.7) return;
   const color = good;
-  drawSegment(ctx, a, b, width, height, color, 8);
-  drawSegment(ctx, b, c, width, height, color, 8);
-  drawPoint(ctx, b.x * width, b.y * height, 11, color, 'rgba(15,23,42,0.75)');
+  drawSegment(ctx, a, b, mapPoint, color, 8);
+  drawSegment(ctx, b, c, mapPoint, color, 8);
+  const bCanvas = mapPoint(b);
+  drawPoint(ctx, bCanvas.x, bCanvas.y, 11, color, 'rgba(15,23,42,0.75)');
   const rawAngle = angleDeg(a, b, c);
   if (!Number.isFinite(rawAngle)) return;
   const displayAngle = clinicalFlexion ? 180 - rawAngle : rawAngle;
-  const x = b.x * width;
-  const y = b.y * height;
-  drawLabel(ctx, `${label}: ${Math.round(displayAngle)}°`, x + 12, y - 14, color);
-  drawArcHint(ctx, a, b, c, width, height, color);
+  drawLabel(ctx, `${label}: ${Math.round(displayAngle)}°`, bCanvas.x + 12, bCanvas.y - 14, color);
+  drawArcHint(ctx, a, b, c, mapPoint, color);
 }
 
-function drawArcHint(ctx, a, b, c, width, height, color) {
-  const bx = b.x * width;
-  const by = b.y * height;
-  const a1 = Math.atan2(a.y * height - by, a.x * width - bx);
-  const a2 = Math.atan2(c.y * height - by, c.x * width - bx);
+function drawArcHint(ctx, a, b, c, mapPoint, color) {
+  const ac = mapPoint(a);
+  const bc = mapPoint(b);
+  const cc = mapPoint(c);
+  const a1 = Math.atan2(ac.y - bc.y, ac.x - bc.x);
+  const a2 = Math.atan2(cc.y - bc.y, cc.x - bc.x);
   ctx.beginPath();
   ctx.strokeStyle = color;
   ctx.lineWidth = 3;
-  ctx.arc(bx, by, 28, a1, a2);
+  ctx.arc(bc.x, bc.y, 28, a1, a2);
   ctx.stroke();
 }
 
-function drawSegment(ctx, a, b, width, height, strokeStyle, lineWidth = 4) {
+function drawSegment(ctx, a, b, mapPoint, strokeStyle, lineWidth = 4) {
+  const ac = mapPoint(a);
+  const bc = mapPoint(b);
   ctx.strokeStyle = strokeStyle;
   ctx.lineWidth = lineWidth;
   ctx.beginPath();
-  ctx.moveTo(a.x * width, a.y * height);
-  ctx.lineTo(b.x * width, b.y * height);
+  ctx.moveTo(ac.x, ac.y);
+  ctx.lineTo(bc.x, bc.y);
   ctx.stroke();
 }
 
@@ -219,40 +297,48 @@ function drawPoint(ctx, x, y, radius, fill, stroke) {
 }
 
 function drawLabel(ctx, text, x, y, color = 'rgba(14,165,233,0.95)') {
-  ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+  ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
   const padding = 8;
   const metrics = ctx.measureText(text);
+  const safeX = Math.max(8, Math.min(x, ctx.canvas.width / (window.devicePixelRatio || 1) - metrics.width - 24));
+  const safeY = Math.max(32, Math.min(y, ctx.canvas.height / (window.devicePixelRatio || 1) - 8));
   ctx.fillStyle = 'rgba(15,23,42,0.78)';
-  roundRect(ctx, x - padding, y - 24, metrics.width + padding * 2, 32, 10);
+  roundRect(ctx, safeX - padding, safeY - 24, metrics.width + padding * 2, 32, 10);
   ctx.fill();
   ctx.fillStyle = 'white';
-  ctx.fillText(text, x, y);
+  ctx.fillText(text, safeX, safeY);
 }
 
-function drawStatusBadge(ctx, detection, width, height, overlays = {}) {
+function drawStatusBadge(ctx, detection, width, height, overlays = {}, drawRect = null) {
   const poseCount = detection?.pose?.landmarks?.length ?? 0;
   const text = poseCount ? `High-confidence overlay active` : 'No body landmarks detected';
-  ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+  ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
   const metrics = ctx.measureText(text);
   ctx.fillStyle = poseCount ? 'rgba(22,101,52,0.86)' : 'rgba(146,64,14,0.88)';
-  roundRect(ctx, 18, height - 52, metrics.width + 24, 34, 12);
+  roundRect(ctx, 14, height - 42, metrics.width + 20, 28, 10);
   ctx.fill();
   ctx.fillStyle = 'white';
-  ctx.fillText(text, 30, height - 29);
+  ctx.fillText(text, 24, height - 23);
 
   if (!poseCount) {
     const help = 'Move back until the full limb/joint chain is visible.';
     const m2 = ctx.measureText(help);
     ctx.fillStyle = 'rgba(15,23,42,0.78)';
-    roundRect(ctx, 18, height - 92, m2.width + 24, 34, 12);
+    roundRect(ctx, 14, height - 76, m2.width + 20, 28, 10);
     ctx.fill();
     ctx.fillStyle = 'white';
-    ctx.fillText(help, 30, height - 69);
+    ctx.fillText(help, 24, height - 57);
   }
-}
 
-function visible(p) {
-  return p && conf(p) >= 0.25 && Number.isFinite(p.x) && Number.isFinite(p.y);
+  if (overlays.debugOverlay !== false && drawRect) {
+    const debug = `video ${drawRect.videoWidth}×${drawRect.videoHeight} → canvas ${Math.round(width)}×${Math.round(height)} • ${drawRect.fitMode}${overlays.mirrorX ? ' • mirrored' : ''}`;
+    const m = ctx.measureText(debug);
+    ctx.fillStyle = 'rgba(15,23,42,0.72)';
+    roundRect(ctx, 14, 14, m.width + 20, 28, 10);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.fillText(debug, 24, 33);
+  }
 }
 
 function conf(p) {
@@ -278,23 +364,4 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
-}
-
-function drawOverlayLine(ctx, line, strokeStyle, lineWidth, label) {
-  if (!line?.length) return;
-  ctx.strokeStyle = strokeStyle;
-  ctx.fillStyle = strokeStyle;
-  ctx.lineWidth = lineWidth;
-  if (line.length === 1) {
-    ctx.beginPath();
-    ctx.arc(line[0][0], line[0][1], 7, 0, Math.PI * 2);
-    ctx.fill();
-    return;
-  }
-  ctx.beginPath();
-  ctx.moveTo(line[0][0], line[0][1]);
-  ctx.lineTo(line[1][0], line[1][1]);
-  ctx.stroke();
-  ctx.font = 'bold 18px system-ui';
-  ctx.fillText(label, line[1][0] + 8, line[1][1] - 8);
 }

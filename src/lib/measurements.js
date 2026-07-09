@@ -1,6 +1,6 @@
-export const APP_VERSION = '3.0.0';
+export const APP_VERSION = '3.2.0';
 export const SCHEMA_VERSION = '3.0.0';
-export const MEASUREMENT_ALGORITHM_VERSION = 'orthoatlas-measurements-3.0.0';
+export const MEASUREMENT_ALGORITHM_VERSION = 'orthoatlas-measurements-3.2.0';
 
 export const JOINT_CONFIG = [
   { key: 'shoulder_abduction', label: 'Shoulder abduction', short: 'shoulder-abduction', group: 'shoulder' },

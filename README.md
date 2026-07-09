@@ -1,25 +1,31 @@
 # OrthoAtlas
 
-**Markerless Motion Assessment**
+Clinic-fast browser app for markerless ROM capture. OrthoAtlas runs locally in the browser; no video is uploaded or stored.
 
-Clinic-fast browser ROM capture. OrthoAtlas runs locally; no video is uploaded or stored. Video frames are processed in memory and only high-confidence landmark-derived ROM values are retained for export.
+## Current version
 
-## v3.0 changes
+v3.2.0 — precise overlay mapping
 
-- Restricted the joint menu to the current working clinic set only:
-  - Shoulder abduction
-  - Shoulder flexion
-  - Elbow flexion/extension
-  - Forearm supination/pronation
-  - Hip flexion/extension
-  - Knee flexion/extension
-  - Ankle dorsiflexion/plantarflexion
-- Removed all other joint options for now.
-- Added the hand model back only for forearm supination/pronation.
-- Results now show the selected joint's ROM values, not a general all-joint arc grid.
-- Elbow, knee, and hip use clinical convention: full extension is 0°, flexion increases from 0°.
-- Recording only keeps frames with high-confidence landmark chains for the selected joint/side.
-- Live overlay highlights only the selected joint and selected side.
+## What is included
+
+- Phone-first clinic ROM capture
+- Full-screen mobile camera mode
+- MediaPipe Pose + Hands model loading
+- Selected-joint, selected-side live overlay
+- High-confidence-only ROM capture
+- Clinical ROM convention for elbow/knee/hip extension: full extension = 0°
+- ROM results for the selected joint only
+- Summary JSON, full JSON, summary CSV, long CSV, and clean HTML report export
+
+## v3.2 overlay mapping changes
+
+- One shared landmark-to-canvas mapping function
+- Overlay canvas size now follows the actual displayed preview size and device pixel ratio
+- `contain` is default for measurement accuracy, so the full camera image is visible without cropping
+- Optional `Fit: fill` toggle for a more native camera look when desired
+- Front camera preview is mirrored, and overlay x-coordinates are mirrored the same way
+- Debug overlay shows video size, canvas size, fit mode, and mirror status
+- Embedded and full-screen camera modes use the same mapping logic
 
 ## Run locally
 
@@ -29,22 +35,21 @@ npm install
 npm run dev
 ```
 
-For a cache-safe local test:
+For a fresh local test on another port:
 
 ```bash
 npm run dev -- --port 5174 --strictPort
 ```
 
-Open `http://localhost:5174/`.
-
 ## Build
 
 ```bash
 npm run build
+npm test
 ```
 
-Cloudflare Pages:
+## Cloudflare Pages settings
 
-- Framework preset: Vite
 - Build command: `npm run build`
 - Build output directory: `dist`
+- Root directory: blank or `/` if the repo root contains `index.html`, `package.json`, `src/`, and `public/`

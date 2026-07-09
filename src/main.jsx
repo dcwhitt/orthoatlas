@@ -21,6 +21,7 @@ function App() {
   const framesRef = useRef([]);
   const recordingStartedAtRef = useRef(null);
   const sideFlippedRef = useRef(false);
+  const videoFitModeRef = useRef('contain');
 
   const [session, setSession] = useState({
     patientId: '',
@@ -32,6 +33,7 @@ function App() {
     cameraFacing: 'environment'
   });
   const [cameraActive, setCameraActive] = useState(false);
+  const [captureFullscreen, setCaptureFullscreen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [modelsReady, setModelsReady] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -45,8 +47,10 @@ function App() {
   const [endpointOverrides, setEndpointOverrides] = useState({});
   const [scrubFrame, setScrubFrame] = useState(0);
   const [wakeLock, setWakeLock] = useState(null);
+  const [videoFitMode, setVideoFitMode] = useState('contain');
 
   useEffect(() => { sideFlippedRef.current = sideFlipped; }, [sideFlipped]);
+  useEffect(() => { videoFitModeRef.current = videoFitMode; }, [videoFitMode]);
 
   useEffect(() => {
     // Old builds used a service worker. During local testing that can keep stale UI around.
@@ -107,6 +111,7 @@ function App() {
         await video.play();
       }
       setCameraActive(true);
+      setCaptureFullscreen(true);
       setCaptureMeta(meta => ({ ...meta, resolution: video ? { width: video.videoWidth, height: video.videoHeight } : null }));
       await requestWakeLock();
       setStatus('Camera active. Position the limb, then press Record. No video is uploaded or stored.');
@@ -131,6 +136,7 @@ function App() {
     const canvas = canvasRef.current;
     if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     setCameraActive(false);
+    setCaptureFullscreen(false);
     releaseWakeLock();
     setStatus('Camera stopped. No video saved.');
   }
@@ -149,7 +155,15 @@ function App() {
       const models = modelsRef.current;
       if (video && canvas && models && video.readyState >= 2) {
         const detection = detectFrame(models, video);
-        drawLandmarks(canvas, video, detection, { selectedJoint: session.joint, selectedSide: session.affectedSide, sideFlipped: sideFlippedRef.current });
+        drawLandmarks(canvas, video, detection, {
+          selectedJoint: session.joint,
+          selectedSide: session.affectedSide,
+          sideFlipped: sideFlippedRef.current,
+          cameraFacing: session.cameraFacing,
+          mirrorX: session.cameraFacing === 'user',
+          fitMode: videoFitModeRef.current,
+          debugOverlay: true
+        });
         if (recordingRef.current && detection) {
           const frameIndex = framesRef.current.length;
           const frame = compactFrame(detection, frameIndex);
@@ -229,31 +243,38 @@ function App() {
         <SessionCard session={session} updateSession={updateSession} protocol={protocol} selectedJoint={selectedJoint} helpOpen={protocolHelpOpen} setHelpOpen={setProtocolHelpOpen} />
       </section>
 
-      <section className="card capture-card">
-        <div className="section-head">
-          <div>
+      <section className={`card capture-card ${cameraActive && captureFullscreen ? 'capture-fullscreen' : ''}`}>
+        <div className="section-head capture-head">
+          <div className="capture-title">
             <h2>Capture</h2>
-            <p>No server storage. No video saved. Only landmarks/results are retained locally until export or refresh.</p>
+            <p>No video is uploaded or stored. Only landmarks/results are retained locally until export or refresh.</p>
           </div>
           <div className="capture-controls">
             <select value={session.cameraFacing} onChange={e => updateSession('cameraFacing', e.target.value)} disabled={cameraActive}>
               {CAMERA_MODES.map(mode => <option key={mode.key} value={mode.key}>{mode.label}</option>)}
             </select>
             {!cameraActive ? <button onClick={startCamera} className="primary"><Camera size={18} /> Start Camera</button> : <button onClick={stopCamera} className="danger">Stop Camera</button>}
-            {cameraActive && (!recording ? <button onClick={startRecording} className="primary"><Play size={18} /> Record</button> : <button onClick={stopRecording} className="danger"><Square size={18} /> Stop Recording</button>)}
+            {cameraActive && (!recording ? <button onClick={startRecording} className="primary record-control"><Play size={18} /> Record</button> : <button onClick={stopRecording} className="danger record-control"><Square size={18} /> Stop Recording</button>)}
+            {cameraActive && <button onClick={() => setCaptureFullscreen(v => !v)} className="secondary focus-toggle">{captureFullscreen ? 'Done' : 'Full-screen camera'}</button>}
+            {cameraActive && <button onClick={() => setVideoFitMode(m => m === 'contain' ? 'cover' : 'contain')} className="secondary fit-toggle">{videoFitMode === 'contain' ? 'Fit: contain' : 'Fit: fill'}</button>}
             <button onClick={toggleSideFlip} className="secondary"><FlipHorizontal size={18} /> Flip Sides</button>
           </div>
         </div>
 
         <div className="video-wrap">
-          <video ref={videoRef} playsInline muted className="video" />
+          <video ref={videoRef} playsInline muted className={`video fit-${videoFitMode} ${session.cameraFacing === 'user' ? 'mirror' : ''}`} />
           <canvas ref={canvasRef} className="overlay" />
           {!cameraActive && <div className="video-placeholder">Camera preview will appear here</div>}
           <span className="video-pill">No video saved</span>
           {recording && <span className="recording-pill">Recording landmarks</span>}
+          {cameraActive && captureFullscreen && <div className="mobile-record-dock">
+            {!recording ? <button onClick={startRecording} className="record-shutter" aria-label="Record"><Play size={34} /></button> : <button onClick={stopRecording} className="record-shutter recording" aria-label="Stop recording"><Square size={30} /></button>}
+            <button onClick={() => setCaptureFullscreen(false)} className="dock-button">Done</button>
+          </div>}
         </div>
         <div className="status-row">
           <span>{status}</span>
+          {cameraActive && <span className="mini-status">Overlay mapping: {videoFitMode === 'contain' ? 'contain/no crop' : 'fill/crop'}{session.cameraFacing === 'user' ? ' • mirrored front camera' : ''}</span>}
           {loadingModels && <span><Loader2 className="spin" size={16} /> Loading models</span>}
           {modelError && <span className="error-text">{modelError}</span>}
           {modelsReady && !modelError && <span className="good-text">Models ready</span>}
