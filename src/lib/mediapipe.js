@@ -1,6 +1,7 @@
 import { FilesetResolver, HandLandmarker, PoseLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 
 let cache = null;
+const overlaySmoothingState = new Map();
 
 const MODEL_URLS = {
   pose: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
@@ -66,7 +67,7 @@ export function drawLandmarks(canvas, video, detection, overlays = {}) {
   const fitMode = overlays.fitMode === 'cover' ? 'cover' : 'contain';
   const mirrorX = Boolean(overlays.mirrorX);
   const drawRect = getVideoDrawRect(video, size.width, size.height, fitMode);
-  const mapper = makeLandmarkMapper(drawRect, { mirrorX });
+  const mapper = makeLandmarkMapper(drawRect, { mirrorX, smoothing: overlays.smoothing, namespace: `${overlays.selectedJoint || 'joint'}-${overlays.selectedSide || 'both'}-${mirrorX ? 'mirror' : 'normal'}` });
 
   ctx.clearRect(0, 0, size.width, size.height);
   if (drawRect.letterboxed) drawLetterboxGuides(ctx, drawRect, size);
@@ -76,10 +77,12 @@ export function drawLandmarks(canvas, video, detection, overlays = {}) {
     drawPoseSkeleton(ctx, landmarks, mapper, overlays);
   }
 
-  if (overlays.selectedJoint === 'forearm') {
+  const shouldDrawHands = overlays.selectedJoint === 'forearm' || overlays.selectedJoint === 'all';
+  if (shouldDrawHands) {
     const hands = detection?.hands?.landmarks ?? [];
     const handedness = detection?.hands?.handednesses ?? detection?.hands?.handedness ?? [];
-    drawForearmHands(ctx, hands, handedness, mapper, overlays);
+    const primaryPose = poses?.[0] ?? null;
+    drawForearmHands(ctx, hands, handedness, mapper, { ...overlays, poseLandmarks: primaryPose });
   }
 
   drawStatusBadge(ctx, detection, size.width, size.height, overlays, drawRect);
@@ -148,8 +151,22 @@ function getCanvasCssSize(canvas) {
 }
 
 function makeLandmarkMapper(drawRect, options = {}) {
-  return (point) => mapLandmarkToCanvas(point, drawRect, options);
+  return (point, key = '') => {
+    const mapped = mapLandmarkToCanvas(point, drawRect, options);
+    if (!mapped || !options.smoothing?.enabled) return mapped;
+    const alpha = Number(options.smoothing.alpha ?? 0.32);
+    const stateKey = `${options.namespace || 'overlay'}:${key || point?.index || ''}:${round4(point?.x)}:${round4(point?.y)}`;
+    // Landmark x/y jitter is reduced by smoothing by semantic draw key when supplied.
+    const stableKey = key ? `${options.namespace || 'overlay'}:${key}` : stateKey;
+    const previous = overlaySmoothingState.get(stableKey);
+    const smoothed = previous
+      ? { x: alpha * mapped.x + (1 - alpha) * previous.x, y: alpha * mapped.y + (1 - alpha) * previous.y }
+      : mapped;
+    overlaySmoothingState.set(stableKey, smoothed);
+    return smoothed;
+  };
 }
+function round4(v) { return Number.isFinite(v) ? Math.round(v * 10000) / 10000 : ''; }
 
 function drawLetterboxGuides(ctx, drawRect, size) {
   ctx.save();
@@ -182,12 +199,12 @@ function drawPoseSkeleton(ctx, landmarks, mapPoint, overlays = {}) {
   const jointSpecs = [];
   for (const side of sides) {
     const L = side === 'left';
-    if (selectedJoint === 'elbow') jointSpecs.push([L ? 11 : 12, L ? 13 : 14, L ? 15 : 16, `${L ? 'L' : 'R'} elbow`, true]);
-    if (selectedJoint === 'knee') jointSpecs.push([L ? 23 : 24, L ? 25 : 26, L ? 27 : 28, `${L ? 'L' : 'R'} knee`, true]);
-    if (selectedJoint === 'shoulder_flexion') jointSpecs.push([L ? 23 : 24, L ? 11 : 12, L ? 13 : 14, `${L ? 'L' : 'R'} shoulder flex`, false]);
-    if (selectedJoint === 'shoulder_abduction') jointSpecs.push([L ? 23 : 24, L ? 11 : 12, L ? 13 : 14, `${L ? 'L' : 'R'} shoulder abd`, false]);
-    if (selectedJoint === 'hip') jointSpecs.push([L ? 11 : 12, L ? 23 : 24, L ? 25 : 26, `${L ? 'L' : 'R'} hip`, true]);
-    if (selectedJoint === 'ankle') jointSpecs.push([L ? 25 : 26, L ? 27 : 28, L ? 31 : 32, `${L ? 'L' : 'R'} ankle`, false]);
+    if (selectedJoint === 'all' || selectedJoint === 'elbow') jointSpecs.push([L ? 11 : 12, L ? 13 : 14, L ? 15 : 16, `${L ? 'L' : 'R'} elbow`, true]);
+    if (selectedJoint === 'all' || selectedJoint === 'knee') jointSpecs.push([L ? 23 : 24, L ? 25 : 26, L ? 27 : 28, `${L ? 'L' : 'R'} knee`, true]);
+    if (selectedJoint === 'all' || selectedJoint === 'shoulder_flexion') jointSpecs.push([L ? 23 : 24, L ? 11 : 12, L ? 13 : 14, `${L ? 'L' : 'R'} shoulder flex`, false]);
+    if (selectedJoint === 'all' || selectedJoint === 'shoulder_abduction') jointSpecs.push([L ? 23 : 24, L ? 11 : 12, L ? 13 : 14, `${L ? 'L' : 'R'} shoulder abd`, false]);
+    if (selectedJoint === 'all' || selectedJoint === 'hip') jointSpecs.push([L ? 11 : 12, L ? 23 : 24, L ? 25 : 26, `${L ? 'L' : 'R'} hip`, true]);
+    if (selectedJoint === 'all' || selectedJoint === 'ankle') jointSpecs.push([L ? 25 : 26, L ? 27 : 28, L ? 31 : 32, `${L ? 'L' : 'R'} ankle`, 'ankle']);
   }
 
   for (const [proximalIdx, jointIdx, distalIdx, label, clinicalFlexion] of jointSpecs) {
@@ -198,20 +215,62 @@ function drawPoseSkeleton(ctx, landmarks, mapPoint, overlays = {}) {
 function drawForearmHands(ctx, hands, handedness, mapPoint, overlays = {}) {
   const selectedSide = overlays.selectedSide ?? 'auto/bilateral';
   const sides = selectedSide === 'left' || selectedSide === 'right' ? [selectedSide] : ['left', 'right'];
+  const poseLandmarks = overlays.poseLandmarks ?? null;
+
+  if (!hands?.length) {
+    drawHandHint(ctx, 'Hand not detected — show palm, wrist, and fingers.', 14, 84);
+    return;
+  }
+
+  let drawnCount = 0;
   hands.forEach((hand, idx) => {
-    const side = handSide(hand, handedness?.[idx]);
-    if (side && !sides.includes(side)) return;
-    drawHandSkeleton(ctx, hand, mapPoint);
-    const indexMcp = hand?.[5];
-    const pinkyMcp = hand?.[17];
-    const wrist = hand?.[0];
-    const minVis = Math.min(conf(indexMcp), conf(pinkyMcp), conf(wrist));
-    if (!indexMcp || !pinkyMcp || !wrist || minVis < 0.7) return;
-    drawSegment(ctx, indexMcp, pinkyMcp, mapPoint, 'rgba(34,197,94,0.98)', 8);
-    const roll = Math.atan2(pinkyMcp.y - indexMcp.y, pinkyMcp.x - indexMcp.x) * 180 / Math.PI;
-    const wristCanvas = mapPoint(wrist);
-    drawLabel(ctx, `${side ? side[0].toUpperCase() : ''} forearm: ${Math.round(normalizeAngle180(roll))}°`, wristCanvas.x + 12, wristCanvas.y - 16, 'rgba(34,197,94,0.95)');
+    if (!hand?.length) return;
+    const side = handSideFromPose(hand, poseLandmarks) ?? handSide(hand, handedness?.[idx]);
+    const isSelected = !side || sides.includes(side);
+
+    // In single-side mode, only highlight the selected side. If handedness is uncertain,
+    // still draw the hand so users can see the model is working, but label it unknown.
+    if (side && !isSelected) return;
+
+    const prefix = `hand:${side || idx}`;
+    const stroke = isSelected ? 'rgba(168,85,247,0.96)' : 'rgba(148,163,184,0.55)';
+    drawHandSkeleton(ctx, hand, mapPoint, prefix, stroke);
+    drawHandStatusLabel(ctx, hand, mapPoint, side || `hand ${idx + 1}`, isSelected);
+    drawnCount += 1;
   });
+
+  if (!drawnCount) {
+    drawHandHint(ctx, `Hand detected, but not on selected side (${selectedSide}). Use Auto/Bilateral or Flip Sides if needed.`, 14, 84);
+  }
+}
+
+function handSideFromPose(hand, poseLandmarks) {
+  if (!poseLandmarks?.length || !hand?.[0]) return null;
+  const wrist = hand[0];
+  const leftWrist = poseLandmarks[15];
+  const rightWrist = poseLandmarks[16];
+  if (!leftWrist || !rightWrist) return null;
+  const dl = dist2(wrist, leftWrist);
+  const dr = dist2(wrist, rightWrist);
+  if (!Number.isFinite(dl) || !Number.isFinite(dr)) return null;
+  return dl <= dr ? 'left' : 'right';
+}
+
+function dist2(a, b) {
+  if (!a || !b) return Infinity;
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+function drawHandHint(ctx, text, x, y) {
+  ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
+  const metrics = ctx.measureText(text);
+  ctx.fillStyle = 'rgba(88,28,135,0.86)';
+  roundRect(ctx, x, y, metrics.width + 20, 28, 10);
+  ctx.fill();
+  ctx.fillStyle = 'white';
+  ctx.fillText(text, x + 10, y + 19);
 }
 
 function handSide(hand, handness) {
@@ -230,17 +289,61 @@ function normalizeAngle180(deg) {
   return v;
 }
 
-function drawHandSkeleton(ctx, landmarks, mapPoint) {
+function drawHandSkeleton(ctx, landmarks, mapPoint, keyPrefix = 'hand', stroke = 'rgba(168,85,247,0.95)') {
   for (const [a, b] of HAND_EDGES) {
     const pa = landmarks[a];
     const pb = landmarks[b];
     if (!pa || !pb) continue;
-    drawSegment(ctx, pa, pb, mapPoint, 'rgba(168,85,247,0.95)', 3);
+    drawSegment(ctx, pa, pb, mapPoint, stroke, 3, `${keyPrefix}:${a}`, `${keyPrefix}:${b}`);
   }
   landmarks.forEach((p, i) => {
-    const c = mapPoint(p);
-    drawPoint(ctx, c.x, c.y, i === 0 ? 6 : 4, 'rgba(255,255,255,0.96)', 'rgba(109,40,217,0.9)');
+    const c = mapPoint(p, `${keyPrefix}:${i}`);
+    const radius = i === 0 ? 6 : ([4,8,12,16,20].includes(i) ? 5 : 4);
+    drawPoint(ctx, c.x, c.y, radius, 'rgba(255,255,255,0.96)', stroke);
   });
+}
+
+
+function drawHandStatusLabel(ctx, hand, mapPoint, sideLabel = '', isSelected = true) {
+  const wrist = hand?.[0];
+  const indexMcp = hand?.[5];
+  const pinkyMcp = hand?.[17];
+  if (!wrist || !indexMcp || !pinkyMcp) return;
+  const confMin = Math.min(conf(wrist), conf(indexMcp), conf(pinkyMcp));
+  const color = confMin >= 0.70 ? 'rgba(34,197,94,0.98)' : confMin >= 0.45 ? 'rgba(250,204,21,0.95)' : 'rgba(239,68,68,0.95)';
+  const wristCanvas = mapPoint(wrist, `hand-label:${sideLabel}`);
+  const prefix = sideLabel === 'left' ? 'L' : sideLabel === 'right' ? 'R' : String(sideLabel || '').toUpperCase();
+  const status = confMin >= 0.70 ? 'hand' : confMin >= 0.45 ? 'hand low' : 'hand poor';
+  drawLabel(ctx, `${prefix} ${status}`, wristCanvas.x + 12, wristCanvas.y - 16, isSelected ? color : 'rgba(148,163,184,0.75)');
+}
+
+function drawPalmOrientation(ctx, hand, mapPoint, sideLabel = '', isSelected = true) {
+  const wrist = hand?.[0];
+  const indexMcp = hand?.[5];
+  const middleMcp = hand?.[9];
+  const pinkyMcp = hand?.[17];
+  if (!wrist || !indexMcp || !pinkyMcp) return;
+  const confMin = Math.min(conf(wrist), conf(indexMcp), conf(pinkyMcp));
+  const color = confMin >= 0.70 ? 'rgba(34,197,94,0.98)' : confMin >= 0.45 ? 'rgba(250,204,21,0.95)' : 'rgba(239,68,68,0.95)';
+  const lineColor = isSelected ? color : 'rgba(148,163,184,0.55)';
+
+  // Palm-width cue used for forearm rotation; drawn across index MCP → pinky MCP.
+  drawSegment(ctx, indexMcp, pinkyMcp, mapPoint, lineColor, 8, `palm:${sideLabel}:index`, `palm:${sideLabel}:pinky`);
+
+  // Palm orientation cue: wrist → center of MCP row.
+  const center = {
+    x: (indexMcp.x + pinkyMcp.x) / 2,
+    y: (indexMcp.y + pinkyMcp.y) / 2,
+    z: ((indexMcp.z ?? 0) + (pinkyMcp.z ?? 0)) / 2,
+    visibility: confMin
+  };
+  drawSegment(ctx, wrist, center, mapPoint, 'rgba(14,165,233,0.95)', 5, `palm:${sideLabel}:wrist`, `palm:${sideLabel}:center`);
+
+  const roll = Math.atan2(pinkyMcp.y - indexMcp.y, pinkyMcp.x - indexMcp.x) * 180 / Math.PI;
+  const wristCanvas = mapPoint(wrist, `palm:${sideLabel}:label`);
+  const prefix = sideLabel === 'left' ? 'L' : sideLabel === 'right' ? 'R' : String(sideLabel || '').toUpperCase();
+  const status = confMin >= 0.70 ? 'hand' : confMin >= 0.45 ? 'hand low' : 'hand poor';
+  drawLabel(ctx, `${prefix} ${status}: ${Math.round(normalizeAngle180(roll))}°`, wristCanvas.x + 12, wristCanvas.y - 16, lineColor);
 }
 
 function drawJointAngle(ctx, landmarks, mapPoint, proximalIdx, jointIdx, distalIdx, label, good, warn, bad, clinicalFlexion = false) {
@@ -249,23 +352,27 @@ function drawJointAngle(ctx, landmarks, mapPoint, proximalIdx, jointIdx, distalI
   const c = landmarks[distalIdx];
   if (!a || !b || !c) return;
   const minVis = Math.min(conf(a), conf(b), conf(c));
-  if (minVis < 0.7) return;
-  const color = good;
-  drawSegment(ctx, a, b, mapPoint, color, 8);
-  drawSegment(ctx, b, c, mapPoint, color, 8);
-  const bCanvas = mapPoint(b);
-  drawPoint(ctx, bCanvas.x, bCanvas.y, 11, color, 'rgba(15,23,42,0.75)');
+  // Live overlay is intentionally more permissive than recording.
+  // Green/high-confidence values (>=0.70) are the only values saved for ROM.
+  if (minVis < 0.30) return;
+  const color = minVis >= 0.70 ? good : minVis >= 0.45 ? warn : bad;
+  const width = minVis >= 0.70 ? 8 : 5;
+  drawSegment(ctx, a, b, mapPoint, color, width, `${label}:prox`, `${label}:joint`);
+  drawSegment(ctx, b, c, mapPoint, color, width, `${label}:joint`, `${label}:dist`);
+  const bCanvas = mapPoint(b, `${label}:joint`);
+  drawPoint(ctx, bCanvas.x, bCanvas.y, minVis >= 0.70 ? 11 : 8, color, 'rgba(15,23,42,0.75)');
   const rawAngle = angleDeg(a, b, c);
   if (!Number.isFinite(rawAngle)) return;
-  const displayAngle = clinicalFlexion ? 180 - rawAngle : rawAngle;
-  drawLabel(ctx, `${label}: ${Math.round(displayAngle)}°`, bCanvas.x + 12, bCanvas.y - 14, color);
-  drawArcHint(ctx, a, b, c, mapPoint, color);
+  const displayAngle = clinicalFlexion === 'ankle' ? 90 - rawAngle : clinicalFlexion ? 180 - rawAngle : rawAngle;
+  const confLabel = minVis >= 0.70 ? '' : minVis >= 0.45 ? ' · low' : ' · poor';
+  drawLabel(ctx, `${label}: ${Math.round(displayAngle)}°${confLabel}`, bCanvas.x + 12, bCanvas.y - 14, color);
+  drawArcHint(ctx, a, b, c, mapPoint, color, label);
 }
 
-function drawArcHint(ctx, a, b, c, mapPoint, color) {
-  const ac = mapPoint(a);
-  const bc = mapPoint(b);
-  const cc = mapPoint(c);
+function drawArcHint(ctx, a, b, c, mapPoint, color, keyPrefix = 'arc') {
+  const ac = mapPoint(a, `${keyPrefix}:arc:a`);
+  const bc = mapPoint(b, `${keyPrefix}:arc:b`);
+  const cc = mapPoint(c, `${keyPrefix}:arc:c`);
   const a1 = Math.atan2(ac.y - bc.y, ac.x - bc.x);
   const a2 = Math.atan2(cc.y - bc.y, cc.x - bc.x);
   ctx.beginPath();
@@ -275,9 +382,9 @@ function drawArcHint(ctx, a, b, c, mapPoint, color) {
   ctx.stroke();
 }
 
-function drawSegment(ctx, a, b, mapPoint, strokeStyle, lineWidth = 4) {
-  const ac = mapPoint(a);
-  const bc = mapPoint(b);
+function drawSegment(ctx, a, b, mapPoint, strokeStyle, lineWidth = 4, aKey = '', bKey = '') {
+  const ac = mapPoint(a, aKey);
+  const bc = mapPoint(b, bKey);
   ctx.strokeStyle = strokeStyle;
   ctx.lineWidth = lineWidth;
   ctx.beginPath();
@@ -311,10 +418,13 @@ function drawLabel(ctx, text, x, y, color = 'rgba(14,165,233,0.95)') {
 
 function drawStatusBadge(ctx, detection, width, height, overlays = {}, drawRect = null) {
   const poseCount = detection?.pose?.landmarks?.length ?? 0;
-  const text = poseCount ? `High-confidence overlay active` : 'No body landmarks detected';
+  const handCount = detection?.hands?.landmarks?.length ?? 0;
+  const needsHand = overlays.selectedJoint === 'forearm' || overlays.selectedJoint === 'all';
+  const handText = needsHand ? ` • hands ${handCount}/2` : '';
+  const text = poseCount ? `Overlay active · smoothed live display${handText} · green values recorded` : 'No body landmarks detected';
   ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
   const metrics = ctx.measureText(text);
-  ctx.fillStyle = poseCount ? 'rgba(22,101,52,0.86)' : 'rgba(146,64,14,0.88)';
+  ctx.fillStyle = poseCount && (!needsHand || handCount > 0) ? 'rgba(22,101,52,0.86)' : poseCount ? 'rgba(88,28,135,0.86)' : 'rgba(146,64,14,0.88)';
   roundRect(ctx, 14, height - 42, metrics.width + 20, 28, 10);
   ctx.fill();
   ctx.fillStyle = 'white';
@@ -324,6 +434,14 @@ function drawStatusBadge(ctx, detection, width, height, overlays = {}, drawRect 
     const help = 'Move back until the full limb/joint chain is visible.';
     const m2 = ctx.measureText(help);
     ctx.fillStyle = 'rgba(15,23,42,0.78)';
+    roundRect(ctx, 14, height - 76, m2.width + 20, 28, 10);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.fillText(help, 24, height - 57);
+  } else if (needsHand && !handCount) {
+    const help = 'Forearm rotation needs the hand model: show palm, wrist, and fingers.';
+    const m2 = ctx.measureText(help);
+    ctx.fillStyle = 'rgba(88,28,135,0.82)';
     roundRect(ctx, 14, height - 76, m2.width + 20, 28, 10);
     ctx.fill();
     ctx.fillStyle = 'white';

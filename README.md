@@ -1,31 +1,21 @@
-# OrthoAtlas
+# OrthoAtlas v3.9
 
-Clinic-fast browser app for markerless ROM capture. OrthoAtlas runs locally in the browser; no video is uploaded or stored.
+Clinic-fast browser-based markerless motion assessment.
 
-## Current version
+## v3.9 changes
 
-v3.2.0 — precise overlay mapping
-
-## What is included
-
-- Phone-first clinic ROM capture
-- Full-screen mobile camera mode
-- MediaPipe Pose + Hands model loading
-- Selected-joint, selected-side live overlay
-- High-confidence-only ROM capture
-- Clinical ROM convention for elbow/knee/hip extension: full extension = 0°
-- ROM results for the selected joint only
-- Summary JSON, full JSON, summary CSV, long CSV, and clean HTML report export
-
-## v3.2 overlay mapping changes
-
-- One shared landmark-to-canvas mapping function
-- Overlay canvas size now follows the actual displayed preview size and device pixel ratio
-- `contain` is default for measurement accuracy, so the full camera image is visible without cropping
-- Optional `Fit: fill` toggle for a more native camera look when desired
-- Front camera preview is mirrored, and overlay x-coordinates are mirrored the same way
-- Debug overlay shows video size, canvas size, fit mode, and mirror status
-- Embedded and full-screen camera modes use the same mapping logic
+- Added **All Joints** to the joint dropdown.
+- All Joints overlays every currently supported joint chain at once:
+  - shoulder abduction
+  - shoulder flexion
+  - elbow flexion/extension
+  - forearm supination/pronation using the hand model
+  - hip flexion/extension
+  - knee flexion/extension
+  - ankle dorsiflexion/plantarflexion
+- Added live overlay smoothing to reduce jitter while keeping recorded ROM restricted to high-confidence green values.
+- Summary/results/export logic now supports selected single-joint mode and All Joints mode.
+- Desktop camera remains embedded; phone/tablet can use full-screen capture.
 
 ## Run locally
 
@@ -35,21 +25,34 @@ npm install
 npm run dev
 ```
 
-For a fresh local test on another port:
+## Deploy
 
-```bash
-npm run dev -- --port 5174 --strictPort
-```
-
-## Build
-
-```bash
-npm run build
-npm test
-```
-
-## Cloudflare Pages settings
+Cloudflare Pages settings:
 
 - Build command: `npm run build`
 - Build output directory: `dist`
-- Root directory: blank or `/` if the repo root contains `index.html`, `package.json`, `src/`, and `public/`
+
+
+## v3.9 changes
+
+- Added visible 21-point hand skeleton overlay for **Forearm supination/pronation**.
+- Added visible hand overlay in **All Joints** mode.
+- Added hand detection status in the live overlay badge.
+- Added palm orientation cue using index MCP → pinky MCP and wrist → palm-center vectors.
+- Hand overlay uses the same contain/cover mapping and front-camera mirroring as pose landmarks.
+- If the hand model is not detected, the camera shows a clear prompt to show the palm, wrist, and fingers.
+
+
+## v3.9 update
+
+- Added measurement correctness/debug values panel.
+- Added live capture guidance over the camera with high-confidence readiness messaging.
+- Polished results card so selected-joint ROM is visually dominant.
+- Updated ankle convention: neutral tibia-foot proxy = 0°, dorsiflexion positive, plantarflexion negative.
+- Live overlay remains smoothed; only green/high-confidence values are recorded for ROM.
+
+
+## v3.9 changes
+- Live capture guidance can now be toggled on/off while the camera is active.
+- Removed the bold palm-orientation bars from the hand overlay. The 21-point hand skeleton remains visible in forearm and All Joints modes.
+- Hand overlay now uses a simpler wrist label only, reducing visual clutter.

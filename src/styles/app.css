@@ -158,8 +158,9 @@ th, td { padding: 0.7rem; border-bottom: 1px solid var(--line); text-align: left
   width: 100vw;
   height: 100dvh;
   aspect-ratio: auto;
-  object-fit: cover;
 }
+.capture-fullscreen .video.fit-contain { object-fit: contain; }
+.capture-fullscreen .video.fit-cover { object-fit: cover; }
 .capture-fullscreen .video-pill {
   top: calc(max(env(safe-area-inset-top), 12px) + 82px);
   left: 18px;
@@ -254,3 +255,103 @@ th, td { padding: 0.7rem; border-bottom: 1px solid var(--line); text-align: left
 .capture-fullscreen .video.fit-contain { object-fit: contain; }
 .capture-fullscreen .video.fit-cover { object-fit: cover; }
 .capture-fullscreen .fit-toggle { background: rgba(255,255,255,0.88); color: #0f172a; }
+
+/* v3.3 capture behavior fixes */
+.video.fit-contain { object-fit: contain; }
+.video.fit-cover { object-fit: cover; }
+.capture-fullscreen .video.fit-contain { object-fit: contain; }
+.capture-fullscreen .video.fit-cover { object-fit: cover; }
+.capture-fullscreen .overlay { object-fit: contain; }
+@media (min-width: 901px) {
+  .capture-card:not(.capture-fullscreen) .video-wrap { min-height: 520px; }
+}
+
+/* v3.8 measurement correctness/debug + capture guidance + polished result card */
+.camera-guidance {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  z-index: 4;
+  display: grid;
+  gap: 0.25rem;
+  max-width: 720px;
+  border-radius: 18px;
+  padding: 0.85rem 1rem;
+  color: white;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(255,255,255,0.12);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+.camera-guidance strong { font-size: 0.98rem; }
+.camera-guidance span { font-size: 0.9rem; color: rgba(255,255,255,0.88); font-weight: 700; }
+.camera-guidance.ready { background: rgba(22, 101, 52, 0.82); }
+.camera-guidance.not-ready { background: rgba(146, 64, 14, 0.86); }
+.camera-guidance.recording { outline: 2px solid rgba(239, 68, 68, 0.65); }
+.debug-panel {
+  margin-top: 1rem;
+  border: 1px solid #bfd0e7;
+  background: #f8fbff;
+  border-radius: 22px;
+  padding: 1rem;
+}
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+.debug-table-wrap { overflow-x: auto; margin-top: 1rem; }
+.debug-table td:first-child { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.86rem; }
+.results-card-polished { position: relative; overflow: hidden; }
+.big-result-card {
+  background: linear-gradient(135deg, #f1f5f9, #e0f2fe);
+  border: 1px solid #bfdbfe;
+  border-radius: 28px;
+  padding: clamp(1.1rem, 3vw, 2rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+.big-result-card.measured { background: linear-gradient(135deg, #dcfce7, #dbeafe); }
+.big-result-card .result-kicker {
+  color: var(--muted);
+  font-weight: 1000;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+}
+.big-result-card h3 { margin: 0.25rem 0; font-size: clamp(1.2rem, 2.2vw, 1.8rem); }
+.big-result-card p { margin: 0; color: var(--muted); font-weight: 800; }
+.big-result-card > strong { font-size: clamp(2.6rem, 8vw, 5.3rem); line-height: 0.95; white-space: nowrap; }
+.rom-row {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 1rem;
+  margin-top: 0.9rem;
+  background: #fff;
+}
+.rom-row.measured { border-color: #bbf7d0; background: #fcfffd; }
+.rom-row-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.rom-row-head h3 { margin: 0; }
+.rom-values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.85rem;
+}
+@media (max-width: 900px) {
+  .debug-grid, .rom-values { grid-template-columns: 1fr; }
+  .big-result-card { grid-template-columns: 1fr; }
+  .big-result-card > strong { justify-self: start; }
+  .camera-guidance { left: 12px; right: 12px; bottom: 12px; }
+}
+.capture-fullscreen .camera-guidance {
+  bottom: calc(env(safe-area-inset-bottom) + 116px);
+  left: 16px;
+  right: 16px;
+  max-width: none;
+}

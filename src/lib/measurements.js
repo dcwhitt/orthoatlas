@@ -1,8 +1,9 @@
-export const APP_VERSION = '3.2.0';
+export const APP_VERSION = '3.8.0';
 export const SCHEMA_VERSION = '3.0.0';
-export const MEASUREMENT_ALGORITHM_VERSION = 'orthoatlas-measurements-3.2.0';
+export const MEASUREMENT_ALGORITHM_VERSION = 'orthoatlas-measurements-3.8.0';
 
 export const JOINT_CONFIG = [
+  { key: 'all', label: 'All Joints', short: 'all-joints', group: 'all' },
   { key: 'shoulder_abduction', label: 'Shoulder abduction', short: 'shoulder-abduction', group: 'shoulder' },
   { key: 'shoulder_flexion', label: 'Shoulder flexion', short: 'shoulder-flexion', group: 'shoulder' },
   { key: 'elbow', label: 'Elbow flexion/extension', short: 'elbow', group: 'elbow' },
@@ -173,8 +174,8 @@ export const SMOOTHING_METHODS = [
 
 export const DEFAULT_SMOOTHING_CONFIG = {
   preset: 'live_fast',
-  enabled: false,
-  method: 'none',
+  enabled: true,
+  method: 'median_ema',
   window: 5,
   emaAlpha: 0.35,
   minConfidence: 0.7
@@ -215,16 +216,16 @@ export function computeFrameAngles(frame, options = {}) {
   if (pose) {
     for (const side of sides) {
       const i = IDX[side];
-      if (selectedJoint === 'elbow') addClinicalFlexion(angles, confidence, `${side}_elbow_flexion_deg`, pose, i.shoulder, i.elbow, i.wrist, minConfidence);
-      if (selectedJoint === 'knee') addClinicalFlexion(angles, confidence, `${side}_knee_flexion_deg`, pose, i.hip, i.knee, i.ankle, minConfidence);
-      if (selectedJoint === 'shoulder_flexion') addShoulderMotion(angles, confidence, `${side}_shoulder_flexion_deg`, pose, i.hip, i.shoulder, i.elbow, minConfidence);
-      if (selectedJoint === 'shoulder_abduction') addShoulderMotion(angles, confidence, `${side}_shoulder_abduction_deg`, pose, i.hip, i.shoulder, i.elbow, minConfidence);
-      if (selectedJoint === 'hip') addClinicalFlexion(angles, confidence, `${side}_hip_flexion_deg`, pose, i.shoulder, i.hip, i.knee, minConfidence);
-      if (selectedJoint === 'ankle') addAnkleMotion(angles, confidence, `${side}_ankle_df_pf_deg`, pose, i.knee, i.ankle, i.foot, minConfidence);
+      if (selectedJoint === 'all' || selectedJoint === 'elbow') addClinicalFlexion(angles, confidence, `${side}_elbow_flexion_deg`, pose, i.shoulder, i.elbow, i.wrist, minConfidence);
+      if (selectedJoint === 'all' || selectedJoint === 'knee') addClinicalFlexion(angles, confidence, `${side}_knee_flexion_deg`, pose, i.hip, i.knee, i.ankle, minConfidence);
+      if (selectedJoint === 'all' || selectedJoint === 'shoulder_flexion') addShoulderMotion(angles, confidence, `${side}_shoulder_flexion_deg`, pose, i.hip, i.shoulder, i.elbow, minConfidence);
+      if (selectedJoint === 'all' || selectedJoint === 'shoulder_abduction') addShoulderMotion(angles, confidence, `${side}_shoulder_abduction_deg`, pose, i.hip, i.shoulder, i.elbow, minConfidence);
+      if (selectedJoint === 'all' || selectedJoint === 'hip') addClinicalFlexion(angles, confidence, `${side}_hip_flexion_deg`, pose, i.shoulder, i.hip, i.knee, minConfidence);
+      if (selectedJoint === 'all' || selectedJoint === 'ankle') addAnkleMotion(angles, confidence, `${side}_ankle_df_pf_deg`, pose, i.knee, i.ankle, i.foot, minConfidence);
     }
   }
 
-  if (selectedJoint === 'forearm') {
+  if (selectedJoint === 'all' || selectedJoint === 'forearm') {
     addForearmRotation(angles, confidence, hands, handedness, sides, minConfidence);
   }
   return { angles, confidence };
@@ -258,8 +259,8 @@ function addAnkleMotion(angles, confidence, key, pts, kneeIdx, ankleIdx, footIdx
   if (!knee || !ankle || !foot || conf < minConfidence) return;
   const raw = angleDeg(knee, ankle, foot);
   if (Number.isFinite(raw)) {
-    // This is a clinically convenient tibia-foot proxy. Neutral is not assumed; ROM uses min/max values.
-    angles[key] = round1(raw);
+    // Clinical ankle convention: neutral tibia-foot angle is treated as 0°; dorsiflexion positive, plantarflexion negative.
+    angles[key] = round1(90 - raw);
     confidence[key] = round2(conf);
   }
 }

@@ -110,7 +110,10 @@ function flattenSummary(payload) {
     notes: payload.session.notes ?? ''
   };
   const sides = payload.session.side === 'left' || payload.session.side === 'right' ? [payload.session.side] : ['left', 'right'];
-  return sides.map((side) => ({ ...base, side, ...selectedExportValues(payload.results?.[side] ?? {}, payload.session.joint_selection) }));
+  const joints = payload.session.joint_selection === 'all'
+    ? ['shoulder_abduction', 'shoulder_flexion', 'elbow', 'forearm', 'hip', 'knee', 'ankle']
+    : [payload.session.joint_selection];
+  return sides.flatMap((side) => joints.map((joint) => ({ ...base, side, joint_selection: joint, ...selectedExportValues(payload.results?.[side] ?? {}, joint) })));
 }
 
 function selectedExportValues(r, joint) {
