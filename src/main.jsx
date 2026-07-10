@@ -257,7 +257,7 @@ function App() {
       <section className="hero">
         <div className="brand">ORTHOATLAS</div>
         <h1>Markerless Motion Assessment</h1>
-        <p>Phone-first browser tool for clinic-fast ROM capture and JSON/CSV export.</p>
+        <p>Browser tool for clinic-fast ROM capture</p>
         <div className="privacy-banner">OrthoAtlas runs locally, no video is uploaded or stored.</div>
       </section>
 
@@ -413,7 +413,7 @@ function SessionCard({ session, updateSession, protocol, selectedJoint, helpOpen
       <div className="section-head"><div><h3>{protocol.title}</h3><span className="pill">{selectedJoint.short}</span></div></div>
       <div className="protocol-detail compact"><p><strong>Camera:</strong> {protocol.camera_position}</p><p><strong>Patient:</strong> {protocol.patient_position}</p><p><strong>Start:</strong> {protocol.start_position}</p><p><strong>Pause:</strong> {protocol.endpoint_pause_duration}; <strong>Reps:</strong> {protocol.recommended_repetitions}</p><p><strong>Required landmarks:</strong> {protocol.required_landmarks.join(' • ')}</p><ol>{protocol.steps.map(step => <li key={step}>{step}</li>)}</ol><p className="watchout"><strong>Common problems:</strong> {protocol.common_failure_warnings.join(' • ')}</p></div>
     </div>}
-    <label className="notes-label">Notes<textarea value={session.notes} onChange={e => updateSession('notes', e.target.value)} placeholder="Enter injured/surgical side, surgery performed or injury type, and time since surgery/injury. Do not enter names, MRNs, DOBs, or other PHI." /></label>
+    <label className="notes-label">Notes<textarea value={session.notes} onChange={e => updateSession('notes', e.target.value)} placeholder="Do not enter PHI" /></label>
   </section>;
 }
 
